@@ -1,14 +1,13 @@
 #!/bin/bash
 
-red='[0;31m'
-green='[0;32m'
-yellow='[0;33m'
-plain='[0m'
+red='\033[0;31m'
+green='\033[0;32m'
+yellow='\033[0;33m'
+plain='\033[0m'
 
 cur_dir=$(pwd)
 
-[[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！
-" && exit 1
+[[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
 if [[ -f /etc/redhat-release ]]; then
     release="centos"
@@ -29,8 +28,7 @@ elif cat /proc/version | grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linu
 elif cat /proc/version | grep -Eqi "arch"; then
     release="arch"
 else
-    echo -e "${red}未检测到系统版本！${plain}
-" && exit 1
+    echo -e "${red}未检测到系统版本！${plain}\n" && exit 1
 fi
 
 arch=$(uname -m)
@@ -69,45 +67,35 @@ install_NPSc() {
     mkdir -p /usr/local/NPSc/ /etc/NPSc/
     cd /usr/local/NPSc/
 
-    # Get latest NPSc release
-    last_version=$(curl -Ls --connect-timeout 10 "https://api.github.com/repos/XTBANNY/NPSc/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*//')
+    last_version=$(curl -Ls --connect-timeout 10 "https://api.github.com/repos/XTBANNY/NPSc/releases/latest" | awk -F'"' '/tag_name/{print $4}')
     if [[ -z "$last_version" ]]; then
         echo -e "${red}无法获取 NPSc 版本信息，请检查网络连接${plain}"
-        echo -e "${yellow}备用方案：手动安装 Go 并编译
-  1. wget https://go.dev/dl/go1.25.0.linux-amd64.tar.gz
-  2. tar -C /usr/local -xzf go1.25.0.linux-amd64.tar.gz
-  3. export PATH=/usr/local/go/bin:\/c/Users/Banny/.workbuddy/binaries/node/versions/22.22.2:/c/Users/Banny/.workbuddy/binaries/python/versions/3.13.12:/c/Users/Banny/.workbuddy/binaries/node/cli-connector-packages:/c/Users/Banny/bin:/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/mingw64/bin:/usr/bin:/c/Users/Banny/bin:/c/Program Files/Common Files/Oracle/Java/javapath:/d/Software installation/虚拟机/bin:/d/Software installation/影刀:/c/Windows/system32:/c/Windows:/c/Windows/System32/Wbem:/c/Windows/System32/WindowsPowerShell/v1.0:/c/Program Files/cursor/resources/app/bin:/c/Program Files/Git/cmd:/c/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR:/c/Program Files (x86)/NVIDIA Corporation/PhysX/Common:/c/Users/Banny/AppData/Local/hermes/hermes-agent/venv/Scripts:/c/Users/Banny/AppData/Local/hermes/bin:/d/Software installation/影刀:/c/Users/Banny/AppData/Local/Microsoft/WindowsApps:/c/Users/Banny/AppData/Local/hermes/node:/c/flutter/bin:/c/Program Files/Common Files/Oracle/Java/javapath:/d/Software installation/虚拟机/bin:/d/Software installation/影刀:/c/Windows/system32:/c/Windows:/c/Windows/System32/Wbem:/c/Windows/System32/WindowsPowerShell/v1.0:/c/Program Files/cursor/resources/app/bin:/c/Program Files/Git/cmd:/c/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR:/c/Program Files (x86)/NVIDIA Corporation/PhysX/Common:/c/Users/Banny/AppData/Local/hermes/hermes-agent/venv/Scripts:/c/Users/Banny/AppData/Local/hermes/bin:/d/Software installation/影刀:/c/Users/Banny/AppData/Local/Microsoft/WindowsApps:/c/Users/Banny/AppData/Local/hermes/node:/c/flutter/bin:/c/Users/Banny/AppData/Local/hermes/hermes-agent/venv/Scripts:/c/Users/Banny/AppData/Local/hermes/bin:/d/Software installation/影刀:/c/Users/Banny/AppData/Local/Microsoft/WindowsApps:/c/Users/Banny/AppData/Local/hermes/node:/c/Users/Banny/AppData/Local/Android/Sdk/platform-tools:/usr/bin/vendor_perl:/usr/bin/core_perl
-  4. git clone https://github.com/XTBANNY/NPSc && cd NPSc
-  5. GOEXPERIMENT=jsonv2 go build -o NPSc -tags "sing xray hysteria2 with_quic with_grpc with_utls with_wireguard with_acme with_gvisor"
-  6. cp NPSc /usr/local/NPSc/${plain}"
+        echo -e "${yellow}备用方案：手动安装${plain}"
         exit 1
     fi
 
     echo -e "检测到 NPSc ${green}${last_version}${plain}，开始安装"
     download_url="https://github.com/XTBANNY/NPSc/releases/download/${last_version}/NPSc-linux-${arch}.zip"
-    wget --no-check-certificate -N --progress=bar -O NPSc-linux.zip "${download_url}" || {
-        echo -e "${red}下载 NPSc 失败，请检查网络${plain}"
+    wget --no-check-certificate -O NPSc-linux.zip "${download_url}" || {
+        echo -e "${red}下载 NPSc 失败${plain}"
         exit 1
     }
 
     unzip -o NPSc-linux.zip
     rm NPSc-linux.zip -f
 
-    # Extract from NPSc subdirectory if it exists
     if [[ -d NPSc ]]; then
-        cp NPSc/NPSc ./
-        cp NPSc/*.json ./
-        cp NPSc/*.dat ./
-        cp NPSc/*.db ./
-        chmod +x NPSc
+        mv NPSc/NPSc ./
+        mv NPSc/*.json ./
+        mv NPSc/*.dat ./
+        mv NPSc/*.db ./
     fi
 
-    chmod +x NPSc 2>/dev/null
+    chmod +x NPSc
     cp *.json /etc/NPSc/ 2>/dev/null
     cp *.dat /etc/NPSc/ 2>/dev/null
     cp *.db /etc/NPSc/ 2>/dev/null
 
-    # Systemd service
     if [[ x"${release}" == x"alpine" ]]; then
         rm /etc/init.d/NPSc -f
         cat <<EOF > /etc/init.d/NPSc
@@ -155,7 +143,6 @@ EOF
 
     echo -e "${green}NPSc ${last_version}${plain} 安装完成，已设置开机自启"
 
-    # Install management script
     curl -o /usr/bin/NPSc -Ls https://raw.githubusercontent.com/XTBANNY/NPSc-script/master/NPSc.sh
     chmod +x /usr/bin/NPSc
     [[ ! -L /usr/bin/npsc ]] && { ln -s /usr/bin/NPSc /usr/bin/npsc; chmod +x /usr/bin/npsc; }
@@ -166,13 +153,17 @@ EOF
     echo ""
     echo "NPSc 管理命令: "
     echo "------------------------------------------"
-    echo "NPSc            - 显示管理菜单"
-    echo "NPSc generate   - 交互式生成配置文件"
-    echo "NPSc start      - 启动"
-    echo "NPSc stop       - 停止"
-    echo "NPSc restart    - 重启"
-    echo "NPSc status     - 查看状态"
-    echo "NPSc log        - 查看日志"
+    echo "NPSc              - 显示管理菜单"
+    echo "NPSc generate     - 交互式生成配置文件"
+    echo "NPSc start        - 启动"
+    echo "NPSc stop         - 停止"
+    echo "NPSc restart      - 重启"
+    echo "NPSc status       - 查看状态"
+    echo "NPSc log          - 查看日志"
+    echo "NPSc enable       - 开机自启"
+    echo "NPSc disable      - 取消开机自启"
+    echo "NPSc update       - 更新"
+    echo "NPSc uninstall    - 卸载"
     echo "------------------------------------------"
     echo ""
     echo -e "${yellow}提示：首次安装请使用 NPSc generate 配置面板信息${plain}"
