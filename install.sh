@@ -36,7 +36,6 @@ arch=$(uname -m)
 [[ $arch == "aarch64" || $arch == "arm64" ]] && arch="arm64-v8a"
 [[ $arch == armv7* || $arch == armv8* ]] && arch="arm32-v7a"
 echo "架构: ${arch}"
-echo "二进制: NPSc-linux-${arch}.zip"
 
 [[ "$(getconf WORD_BIT)" != '32' && "$(getconf LONG_BIT)" != '64' ]] && echo "不支持32位系统" && exit 2
 
@@ -79,29 +78,31 @@ install_NPSc() {
     download_url="https://github.com/XTBANNY/NPSc/releases/download/${last_version}/NPSc-linux-${arch}.zip"
     wget --no-check-certificate -N --progress=bar -O NPSc-linux.zip "${download_url}" || {
         echo -e "${red}下载 NPSc 失败: ${download_url}${plain}"
-        echo -e "${yellow}请检查 GitHub Release 是否包含当前架构的预编译包${plain}"
         exit 1
     }
 
     unzip -o NPSc-linux.zip
     rm NPSc-linux.zip -f
 
-    # Handle nested directories from zip (NPSc/, NPSc-build/NPSc/, NPSc-pkg/)
-    ExtractDir=""
+    # Extract files from nested directory (zip contains NPSc/NPSc, NPSc/*.json, NPSc/*.dat)
+    # Must copy binary to temp name first because ./NPSc is an existing dir
+    SrcDir=""
     for d in NPSc NPSc-build/NPSc NPSc-pkg; do
         if [[ -d "$d" ]]; then
-            ExtractDir="$d"
+            SrcDir="$d"
             break
         fi
     done
 
-    if [[ -n "$ExtractDir" ]]; then
-        cp "$ExtractDir"/NPSc ./ 2>/dev/null
-        cp "$ExtractDir"/*.json ./ 2>/dev/null
-        cp "$ExtractDir"/*.dat ./ 2>/dev/null
-        cp "$ExtractDir"/*.db ./ 2>/dev/null
-        rm -rf "$ExtractDir"
-        rm -rf NPSc-build NPSc-pkg 2>/dev/null
+    if [[ -n "$SrcDir" ]]; then
+        # Copy binary to temp name (cp to ./NPSc would go into the dir, not replace it)
+        cp "$SrcDir"/NPSc ./NPSc.bin 2>/dev/null
+        cp "$SrcDir"/*.json ./ 2>/dev/null
+        cp "$SrcDir"/*.dat ./ 2>/dev/null
+        cp "$SrcDir"/*.db ./ 2>/dev/null
+        rm -rf "$SrcDir" NPSc-build NPSc-pkg 2>/dev/null
+        # Move temp binary to final name
+        mv NPSc.bin NPSc 2>/dev/null || { rm -rf NPSc; mv NPSc.bin NPSc 2>/dev/null; }
     fi
 
     chmod +x NPSc
@@ -109,7 +110,7 @@ install_NPSc() {
     cp *.dat /etc/NPSc/ 2>/dev/null
     cp *.db /etc/NPSc/ 2>/dev/null
 
-    # Create sing_origin.json if not present
+    # Create sing_origin.json if not present (required by sing core)
     if [ ! -f /etc/NPSc/sing_origin.json ]; then
         cat > /etc/NPSc/sing_origin.json << 'SINGEOF'
 {
@@ -133,7 +134,6 @@ SINGEOF
         rm /etc/init.d/NPSc -f
         cat <<EOF > /etc/init.d/NPSc
 #!/sbin/openrc-run
-
 name="NPSc"
 description="NPSc"
 command="/usr/local/NPSc/NPSc"
@@ -176,7 +176,6 @@ EOF
 
     echo -e "${green}NPSc ${last_version}${plain} 安装完成，已设置开机自启"
 
-    # Install management script
     curl -o /usr/bin/NPSc -Ls https://raw.githubusercontent.com/XTBANNY/NPSc-script/master/NPSc.sh
     chmod +x /usr/bin/NPSc
     [[ ! -L /usr/bin/npsc ]] && { ln -s /usr/bin/NPSc /usr/bin/npsc; chmod +x /usr/bin/npsc; }
@@ -194,10 +193,6 @@ EOF
     echo "NPSc restart      - 重启"
     echo "NPSc status       - 查看状态"
     echo "NPSc log          - 查看日志"
-    echo "NPSc enable       - 开机自启"
-    echo "NPSc disable      - 取消开机自启"
-    echo "NPSc update       - 更新"
-    echo "NPSc uninstall    - 卸载"
     echo "------------------------------------------"
     echo ""
     echo -e "${yellow}提示：首次安装请使用 NPSc generate 配置面板信息${plain}"
