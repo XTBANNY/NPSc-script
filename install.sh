@@ -163,6 +163,8 @@ LimitCORE=infinity
 LimitNOFILE=65535
 WorkingDirectory=/etc/NPSc/
 ExecStart=/usr/local/NPSc/NPSc server --config /etc/NPSc/config.json
+StandardOutput=null
+StandardError=journal
 Restart=always
 RestartSec=10
 
