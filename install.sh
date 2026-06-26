@@ -1,16 +1,15 @@
 #!/bin/bash
 
-red='\033[0;31m'
-green='\033[0;32m'
-yellow='\033[0;33m'
-plain='\033[0m'
+red='[0;31m'
+green='[0;32m'
+yellow='[0;33m'
+plain='[0m'
 
 cur_dir=$(pwd)
 
-# check root
-[[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
+[[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！
+" && exit 1
 
-# check os
 if [[ -f /etc/redhat-release ]]; then
     release="centos"
 elif cat /etc/issue | grep -Eqi "alpine"; then
@@ -30,28 +29,16 @@ elif cat /proc/version | grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linu
 elif cat /proc/version | grep -Eqi "arch"; then
     release="arch"
 else
-    echo -e "${red}未检测到系统版本！${plain}\n" && exit 1
+    echo -e "${red}未检测到系统版本！${plain}
+" && exit 1
 fi
 
 arch=$(uname -m)
-
-if [[ $arch == "x86_64" || $arch == "x64" || $arch == "amd64" ]]; then
-    arch="64"
-elif [[ $arch == "aarch64" || $arch == "arm64" ]]; then
-    arch="arm64-v8a"
-elif [[ $arch == "s390x" ]]; then
-    arch="s390x"
-else
-    arch="64"
-    echo -e "${red}检测架构失败，使用默认架构: ${arch}${plain}"
-fi
-
+[[ $arch == "x86_64" || $arch == "x64" || $arch == "amd64" ]] && arch="64"
+[[ $arch == "aarch64" || $arch == "arm64" ]] && arch="arm64-v8a"
 echo "架构: ${arch}"
 
-if [ "$(getconf WORD_BIT)" != '32' ] && [ "$(getconf LONG_BIT)" != '64' ] ; then
-    echo "本软件不支持 32 位系统(x86)，请使用 64 位系统(x86_64)"
-    exit 2
-fi
+[[ "$(getconf WORD_BIT)" != '32' && "$(getconf LONG_BIT)" != '64' ]] && echo "不支持32位系统" && exit 2
 
 install_base() {
     if [[ x"${release}" == x"centos" ]]; then
@@ -77,63 +64,50 @@ install_base() {
 }
 
 install_NPSc() {
-    if [[ -e /usr/local/NPSc/ ]]; then
-        rm -rf /usr/local/NPSc/
-    fi
-
+    rm -rf /usr/local/NPSc/
+    rm -f /etc/V2bX
     mkdir -p /usr/local/NPSc/ /etc/NPSc/
     cd /usr/local/NPSc/
 
-    # Try NPSc releases first, fall back to V2bX releases
-    npsc_release=$(curl -Ls --connect-timeout 5 "https://api.github.com/repos/XTBANNY/NPSc/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    
-    if [[ -n "$npsc_release" ]]; then
-        echo -e "检测到 NPSc 最新版本：${green}${npsc_release}${plain}，开始安装"
-        download_url="https://github.com/XTBANNY/NPSc/releases/download/${npsc_release}/NPSc-linux-${arch}.zip"
-        wget --no-check-certificate -N --progress=bar -O NPSc-linux.zip "${download_url}" || {
-            echo -e "${red}下载 NPSc 失败${plain}"
-            exit 1
-        }
-        unzip -o NPSc-linux.zip
-        rm NPSc-linux.zip -f
-    else
-        # Fallback: use V2bX binary (same codebase)
-        echo -e "${yellow}NPSc 没有发布版，使用 V2bX 二进制（同一代码库）${plain}"
-        
-        v2bx_release=$(curl -Ls --connect-timeout 10 "https://api.github.com/repos/wyx2685/V2bX/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-        if [[ -z "$v2bx_release" ]]; then
-            echo -e "${red}无法获取 NPSc 或 V2bX 版本信息，请检查网络连接${plain}"
-            exit 1
-        fi
-        
-        echo -e "使用 V2bX ${v2bx_release} 二进制"
-        download_url="https://github.com/wyx2685/V2bX/releases/download/${v2bx_release}/V2bX-linux-${arch}.zip"
-        wget --no-check-certificate -N --progress=bar -O V2bX-linux.zip "${download_url}" || {
-            echo -e "${red}下载 V2bX 失败${plain}"
-            exit 1
-        }
-        unzip -o V2bX-linux.zip
-        rm V2bX-linux.zip -f
-        # Rename binary from V2bX to NPSc
-        mv V2bX NPSc 2>/dev/null || true
+    # Get latest NPSc release
+    last_version=$(curl -Ls --connect-timeout 10 "https://api.github.com/repos/XTBANNY/NPSc/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*//')
+    if [[ -z "$last_version" ]]; then
+        echo -e "${red}无法获取 NPSc 版本信息，请检查网络连接${plain}"
+        echo -e "${yellow}备用方案：手动安装 Go 并编译
+  1. wget https://go.dev/dl/go1.25.0.linux-amd64.tar.gz
+  2. tar -C /usr/local -xzf go1.25.0.linux-amd64.tar.gz
+  3. export PATH=/usr/local/go/bin:\/c/Users/Banny/.workbuddy/binaries/node/versions/22.22.2:/c/Users/Banny/.workbuddy/binaries/python/versions/3.13.12:/c/Users/Banny/.workbuddy/binaries/node/cli-connector-packages:/c/Users/Banny/bin:/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/mingw64/bin:/usr/bin:/c/Users/Banny/bin:/c/Program Files/Common Files/Oracle/Java/javapath:/d/Software installation/虚拟机/bin:/d/Software installation/影刀:/c/Windows/system32:/c/Windows:/c/Windows/System32/Wbem:/c/Windows/System32/WindowsPowerShell/v1.0:/c/Program Files/cursor/resources/app/bin:/c/Program Files/Git/cmd:/c/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR:/c/Program Files (x86)/NVIDIA Corporation/PhysX/Common:/c/Users/Banny/AppData/Local/hermes/hermes-agent/venv/Scripts:/c/Users/Banny/AppData/Local/hermes/bin:/d/Software installation/影刀:/c/Users/Banny/AppData/Local/Microsoft/WindowsApps:/c/Users/Banny/AppData/Local/hermes/node:/c/flutter/bin:/c/Program Files/Common Files/Oracle/Java/javapath:/d/Software installation/虚拟机/bin:/d/Software installation/影刀:/c/Windows/system32:/c/Windows:/c/Windows/System32/Wbem:/c/Windows/System32/WindowsPowerShell/v1.0:/c/Program Files/cursor/resources/app/bin:/c/Program Files/Git/cmd:/c/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR:/c/Program Files (x86)/NVIDIA Corporation/PhysX/Common:/c/Users/Banny/AppData/Local/hermes/hermes-agent/venv/Scripts:/c/Users/Banny/AppData/Local/hermes/bin:/d/Software installation/影刀:/c/Users/Banny/AppData/Local/Microsoft/WindowsApps:/c/Users/Banny/AppData/Local/hermes/node:/c/flutter/bin:/c/Users/Banny/AppData/Local/hermes/hermes-agent/venv/Scripts:/c/Users/Banny/AppData/Local/hermes/bin:/d/Software installation/影刀:/c/Users/Banny/AppData/Local/Microsoft/WindowsApps:/c/Users/Banny/AppData/Local/hermes/node:/c/Users/Banny/AppData/Local/Android/Sdk/platform-tools:/usr/bin/vendor_perl:/usr/bin/core_perl
+  4. git clone https://github.com/XTBANNY/NPSc && cd NPSc
+  5. GOEXPERIMENT=jsonv2 go build -o NPSc -tags "sing xray hysteria2 with_quic with_grpc with_utls with_wireguard with_acme with_gvisor"
+  6. cp NPSc /usr/local/NPSc/${plain}"
+        exit 1
     fi
 
-    chmod +x NPSc
-    
-    # Create symlink to handle hardcoded /etc/V2bX paths in the binary
-    ln -sf /etc/NPSc /etc/V2bX
-    
-    # Copy all config files to /etc/NPSc/
-    cp *.json /etc/NPSc/ 2>/dev/null || true
-    cp *.dat /etc/NPSc/ 2>/dev/null || true
-    cp *.db /etc/NPSc/ 2>/dev/null || true
-    
-    # Fix any hardcoded paths in config files
-    for f in /etc/NPSc/*.json; do
-        [ -f "$f" ] && sed -i 's|/etc/V2bX/|/etc/NPSc/|g' "$f" 2>/dev/null
-    done
+    echo -e "检测到 NPSc ${green}${last_version}${plain}，开始安装"
+    download_url="https://github.com/XTBANNY/NPSc/releases/download/${last_version}/NPSc-linux-${arch}.zip"
+    wget --no-check-certificate -N --progress=bar -O NPSc-linux.zip "${download_url}" || {
+        echo -e "${red}下载 NPSc 失败，请检查网络${plain}"
+        exit 1
+    }
 
-    # Create systemd service with explicit --config flag
+    unzip -o NPSc-linux.zip
+    rm NPSc-linux.zip -f
+
+    # Extract from NPSc subdirectory if it exists
+    if [[ -d NPSc ]]; then
+        cp NPSc/NPSc ./
+        cp NPSc/*.json ./
+        cp NPSc/*.dat ./
+        cp NPSc/*.db ./
+        chmod +x NPSc
+    fi
+
+    chmod +x NPSc 2>/dev/null
+    cp *.json /etc/NPSc/ 2>/dev/null
+    cp *.dat /etc/NPSc/ 2>/dev/null
+    cp *.db /etc/NPSc/ 2>/dev/null
+
+    # Systemd service
     if [[ x"${release}" == x"alpine" ]]; then
         rm /etc/init.d/NPSc -f
         cat <<EOF > /etc/init.d/NPSc
@@ -141,17 +115,12 @@ install_NPSc() {
 
 name="NPSc"
 description="NPSc"
-
 command="/usr/local/NPSc/NPSc"
 command_args="server --config /etc/NPSc/config.json"
 command_user="root"
-
 pidfile="/run/NPSc.pid"
 command_background="yes"
-
-depend() {
-        need net
-}
+depend() { need net; }
 EOF
         chmod +x /etc/init.d/NPSc
         rc-update add NPSc default
@@ -184,34 +153,29 @@ EOF
         systemctl enable NPSc
     fi
 
-    echo -e "${green}NPSc 安装完成，已设置开机自启${plain}"
-    
+    echo -e "${green}NPSc ${last_version}${plain} 安装完成，已设置开机自启"
+
     # Install management script
     curl -o /usr/bin/NPSc -Ls https://raw.githubusercontent.com/XTBANNY/NPSc-script/master/NPSc.sh
     chmod +x /usr/bin/NPSc
-    if [ ! -L /usr/bin/npsc ]; then
-        ln -s /usr/bin/NPSc /usr/bin/npsc
-        chmod +x /usr/bin/npsc
-    fi
-    
+    [[ ! -L /usr/bin/npsc ]] && { ln -s /usr/bin/NPSc /usr/bin/npsc; chmod +x /usr/bin/npsc; }
+
     cd $cur_dir
     rm -f install.sh
-    
-    echo -e ""
-    echo "NPSc 管理脚本使用方法: "
+
+    echo ""
+    echo "NPSc 管理命令: "
     echo "------------------------------------------"
-    echo "NPSc              - 显示管理菜单"
-    echo "NPSc start        - 启动 NPSc"
-    echo "NPSc stop         - 停止 NPSc"
-    echo "NPSc restart      - 重启 NPSc"
-    echo "NPSc status       - 查看 NPSc 状态"
-    echo "NPSc log          - 查看 NPSc 日志"
-    echo "NPSc enable       - 设置开机自启"
-    echo "NPSc disable      - 取消开机自启"
-    echo "NPSc generate     - 交互式生成配置文件"
-    echo "NPSc update       - 更新 NPSc"
-    echo "NPSc uninstall    - 卸载 NPSc"
+    echo "NPSc            - 显示管理菜单"
+    echo "NPSc generate   - 交互式生成配置文件"
+    echo "NPSc start      - 启动"
+    echo "NPSc stop       - 停止"
+    echo "NPSc restart    - 重启"
+    echo "NPSc status     - 查看状态"
+    echo "NPSc log        - 查看日志"
     echo "------------------------------------------"
+    echo ""
+    echo -e "${yellow}提示：首次安装请使用 NPSc generate 配置面板信息${plain}"
 }
 
 echo -e "${green}开始安装 NPSc...${plain}"
