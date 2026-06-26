@@ -63,7 +63,6 @@ install_base() {
 
 install_NPSc() {
     rm -rf /usr/local/NPSc/
-    rm -f /etc/V2bX
     mkdir -p /usr/local/NPSc/ /etc/NPSc/
     cd /usr/local/NPSc/
 
