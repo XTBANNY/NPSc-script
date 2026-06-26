@@ -84,16 +84,16 @@ install_NPSc() {
     rm NPSc-linux.zip -f
 
     # Handle nested directories (NPSc/, NPSc-build/NPSc/, NPSc-pkg/ etc)
-    ExtractDir=""
+    ExtractDir=
     for d in NPSc NPSc-build/NPSc NPSc-pkg; do
-        [[ -d "" ]] && { ExtractDir=""; break; }
+        [[ -d  ]] && { ExtractDir=; break; }
     done
-    if [[ -n "" ]]; then
-        cp ""/NPSc ./ 2>/dev/null
-        cp ""/*.json ./ 2>/dev/null
-        cp ""/*.dat ./ 2>/dev/null
-        cp ""/*.db ./ 2>/dev/null
-        rm -rf ""
+    if [[ -n  ]]; then
+        cp /NPSc ./ 2>/dev/null
+        cp /*.json ./ 2>/dev/null
+        cp /*.dat ./ 2>/dev/null
+        cp /*.db ./ 2>/dev/null
+        rm -rf 
         rm -rf NPSc-build NPSc-pkg 2>/dev/null
     fi
 
