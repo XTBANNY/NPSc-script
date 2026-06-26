@@ -30,7 +30,7 @@ elif cat /proc/version | grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linu
 elif cat /proc/version | grep -Eqi "arch"; then
     release="arch"
 else
-    echo -e "${red}未检测到系统版本，请联系脚本作者！${plain}\n" && exit 1
+    echo -e "${red}未检测到系统版本！${plain}\n" && exit 1
 fi
 
 arch=$(uname -m)
@@ -49,7 +49,7 @@ fi
 echo "架构: ${arch}"
 
 if [ "$(getconf WORD_BIT)" != '32' ] && [ "$(getconf LONG_BIT)" != '64' ] ; then
-    echo "本软件不支持 32 位系统(x86)，请使用 64 位系统(x86_64)，如果检测有误，请联系作者"
+    echo "本软件不支持 32 位系统(x86)，请使用 64 位系统(x86_64)"
     exit 2
 fi
 
@@ -76,65 +76,64 @@ install_base() {
     fi
 }
 
-# 0: running, 1: not running, 2: not installed
-check_status() {
-    if [[ ! -f /usr/local/NPSc/NPSc ]]; then
-        return 2
-    fi
-    if [[ x"${release}" == x"alpine" ]]; then
-        temp=$(service NPSc status | awk '{print $3}')
-        if [[ x"${temp}" == x"started" ]]; then
-            return 0
-        else
-            return 1
-        fi
-    else
-        temp=$(systemctl status NPSc | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
-        if [[ x"${temp}" == x"running" ]]; then
-            return 0
-        else
-            return 1
-        fi
-    fi
-}
-
 install_NPSc() {
     if [[ -e /usr/local/NPSc/ ]]; then
         rm -rf /usr/local/NPSc/
     fi
 
-    mkdir /usr/local/NPSc/ -p
+    mkdir -p /usr/local/NPSc/ /etc/NPSc/
     cd /usr/local/NPSc/
 
-    if  [ $# == 0 ] ;then
-        last_version=$(curl -Ls "https://api.github.com/repos/XTBANNY/NPSc/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-        if [[ ! -n "$last_version" ]]; then
-            echo -e "${red}检测 NPSc 版本失败，请稍后再试，或手动指定版本${plain}"
+    # Try NPSc releases first, fall back to V2bX releases
+    npsc_release=$(curl -Ls --connect-timeout 5 "https://api.github.com/repos/XTBANNY/NPSc/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    if [[ -n "$npsc_release" ]]; then
+        echo -e "检测到 NPSc 最新版本：${green}${npsc_release}${plain}，开始安装"
+        download_url="https://github.com/XTBANNY/NPSc/releases/download/${npsc_release}/NPSc-linux-${arch}.zip"
+        wget --no-check-certificate -N --progress=bar -O NPSc-linux.zip "${download_url}" || {
+            echo -e "${red}下载 NPSc 失败${plain}"
             exit 1
-        fi
-        echo -e "检测到 NPSc 最新版本：${last_version}，开始安装"
-        wget --no-check-certificate -N --progress=bar -O /usr/local/NPSc/NPSc-linux.zip https://github.com/XTBANNY/NPSc/releases/download/${last_version}/NPSc-linux-${arch}.zip
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 NPSc 失败，请确保你的服务器能够下载 Github 的文件${plain}"
-            exit 1
-        fi
+        }
+        unzip -o NPSc-linux.zip
+        rm NPSc-linux.zip -f
     else
-        last_version=$1
-        url="https://github.com/XTBANNY/NPSc/releases/download/${last_version}/NPSc-linux-${arch}.zip"
-        echo -e "开始安装 NPSc $1"
-        wget --no-check-certificate -N --progress=bar -O /usr/local/NPSc/NPSc-linux.zip ${url}
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 NPSc $1 失败，请确保此版本存在${plain}"
+        # Fallback: use V2bX binary (same codebase)
+        echo -e "${yellow}NPSc 没有发布版，使用 V2bX 二进制（同一代码库）${plain}"
+        
+        v2bx_release=$(curl -Ls --connect-timeout 10 "https://api.github.com/repos/wyx2685/V2bX/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        if [[ -z "$v2bx_release" ]]; then
+            echo -e "${red}无法获取 NPSc 或 V2bX 版本信息，请检查网络连接${plain}"
             exit 1
         fi
+        
+        echo -e "使用 V2bX ${v2bx_release} 二进制"
+        download_url="https://github.com/wyx2685/V2bX/releases/download/${v2bx_release}/V2bX-linux-${arch}.zip"
+        wget --no-check-certificate -N --progress=bar -O V2bX-linux.zip "${download_url}" || {
+            echo -e "${red}下载 V2bX 失败${plain}"
+            exit 1
+        }
+        unzip -o V2bX-linux.zip
+        rm V2bX-linux.zip -f
+        # Rename binary from V2bX to NPSc
+        mv V2bX NPSc 2>/dev/null || true
     fi
 
-    unzip NPSc-linux.zip
-    rm NPSc-linux.zip -f
     chmod +x NPSc
-    mkdir /etc/NPSc/ -p
-    cp geoip.dat /etc/NPSc/ 2>/dev/null || true
-    cp geosite.dat /etc/NPSc/ 2>/dev/null || true
+    
+    # Create symlink to handle hardcoded /etc/V2bX paths in the binary
+    ln -sf /etc/NPSc /etc/V2bX
+    
+    # Copy all config files to /etc/NPSc/
+    cp *.json /etc/NPSc/ 2>/dev/null || true
+    cp *.dat /etc/NPSc/ 2>/dev/null || true
+    cp *.db /etc/NPSc/ 2>/dev/null || true
+    
+    # Fix any hardcoded paths in config files
+    for f in /etc/NPSc/*.json; do
+        [ -f "$f" ] && sed -i 's|/etc/V2bX/|/etc/NPSc/|g' "$f" 2>/dev/null
+    done
+
+    # Create systemd service with explicit --config flag
     if [[ x"${release}" == x"alpine" ]]; then
         rm /etc/init.d/NPSc -f
         cat <<EOF > /etc/init.d/NPSc
@@ -144,7 +143,7 @@ name="NPSc"
 description="NPSc"
 
 command="/usr/local/NPSc/NPSc"
-command_args="server"
+command_args="server --config /etc/NPSc/config.json"
 command_user="root"
 
 pidfile="/run/NPSc.pid"
@@ -156,7 +155,6 @@ depend() {
 EOF
         chmod +x /etc/init.d/NPSc
         rc-update add NPSc default
-        echo -e "${green}NPSc ${last_version}${plain} 安装完成，已设置开机自启"
     else
         rm /etc/systemd/system/NPSc.service -f
         cat <<EOF > /etc/systemd/system/NPSc.service
@@ -174,7 +172,7 @@ LimitRSS=infinity
 LimitCORE=infinity
 LimitNOFILE=999999
 WorkingDirectory=/usr/local/NPSc/
-ExecStart=/usr/local/NPSc/NPSc server
+ExecStart=/usr/local/NPSc/NPSc server --config /etc/NPSc/config.json
 Restart=always
 RestartSec=10
 
@@ -182,51 +180,23 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
         systemctl daemon-reload
-        systemctl stop NPSc
+        systemctl stop NPSc 2>/dev/null
         systemctl enable NPSc
-        echo -e "${green}NPSc ${last_version}${plain} 安装完成，已设置开机自启"
     fi
 
-    if [[ ! -f /etc/NPSc/config.json ]]; then
-        cp config.json /etc/NPSc/
-        echo -e ""
-        echo -e "全新安装，请先参看教程：https://github.com/XTBANNY/NPSc，配置必要的内容"
-    else
-        if [[ x"${release}" == x"alpine" ]]; then
-            service NPSc start
-        else
-            systemctl start NPSc
-        fi
-        sleep 2
-        check_status
-        echo -e ""
-        if [[ $? == 0 ]]; then
-            echo -e "${green}NPSc 重启成功${plain}"
-        else
-            echo -e "${red}NPSc 可能启动失败，请稍后使用 NPSc log 查看日志信息${plain}"
-        fi
-    fi
-
-    if [[ ! -f /etc/NPSc/dns.json ]]; then
-        cp dns.json /etc/NPSc/ 2>/dev/null || true
-    fi
-    if [[ ! -f /etc/NPSc/route.json ]]; then
-        cp route.json /etc/NPSc/ 2>/dev/null || true
-    fi
-    if [[ ! -f /etc/NPSc/custom_outbound.json ]]; then
-        cp custom_outbound.json /etc/NPSc/ 2>/dev/null || true
-    fi
-    if [[ ! -f /etc/NPSc/custom_inbound.json ]]; then
-        cp custom_inbound.json /etc/NPSc/ 2>/dev/null || true
-    fi
+    echo -e "${green}NPSc 安装完成，已设置开机自启${plain}"
+    
+    # Install management script
     curl -o /usr/bin/NPSc -Ls https://raw.githubusercontent.com/XTBANNY/NPSc-script/master/NPSc.sh
     chmod +x /usr/bin/NPSc
     if [ ! -L /usr/bin/npsc ]; then
         ln -s /usr/bin/NPSc /usr/bin/npsc
         chmod +x /usr/bin/npsc
     fi
+    
     cd $cur_dir
     rm -f install.sh
+    
     echo -e ""
     echo "NPSc 管理脚本使用方法: "
     echo "------------------------------------------"
@@ -235,17 +205,15 @@ EOF
     echo "NPSc stop         - 停止 NPSc"
     echo "NPSc restart      - 重启 NPSc"
     echo "NPSc status       - 查看 NPSc 状态"
+    echo "NPSc log          - 查看 NPSc 日志"
     echo "NPSc enable       - 设置开机自启"
     echo "NPSc disable      - 取消开机自启"
-    echo "NPSc log          - 查看 NPSc 日志"
-    echo "NPSc generate     - 生成 NPSc 配置文件"
+    echo "NPSc generate     - 交互式生成配置文件"
     echo "NPSc update       - 更新 NPSc"
-    echo "NPSc install      - 安装 NPSc"
     echo "NPSc uninstall    - 卸载 NPSc"
-    echo "NPSc version      - 查看 NPSc 版本"
     echo "------------------------------------------"
 }
 
-echo -e "${green}开始安装${plain}"
+echo -e "${green}开始安装 NPSc...${plain}"
 install_base
-install_NPSc $1
+install_NPSc
