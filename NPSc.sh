@@ -427,8 +427,8 @@ EOF
 EOF
     fi
 
-    if [[ ! -f /etc/NPSc/sing_origin.json ]]; then
-        cat > /etc/NPSc/sing_origin.json << 'EOF'
+    # Always overwrite sing_origin.json to ensure it exists and is valid
+    cat > /etc/NPSc/sing_origin.json << 'EOF'
 {
   "dns": {
     "servers": [
@@ -448,7 +448,6 @@ EOF
   }
 }
 EOF
-    fi
 
     # ── 完成 ──
     echo ""
