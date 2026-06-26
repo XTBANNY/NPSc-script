@@ -34,7 +34,9 @@ fi
 arch=$(uname -m)
 [[ $arch == "x86_64" || $arch == "x64" || $arch == "amd64" ]] && arch="64"
 [[ $arch == "aarch64" || $arch == "arm64" ]] && arch="arm64-v8a"
+[[ $arch == armv7* || $arch == armv8* ]] && arch="arm32-v7a"
 echo "架构: ${arch}"
+echo "二进制: NPSc-linux-${arch}.zip"
 
 [[ "$(getconf WORD_BIT)" != '32' && "$(getconf LONG_BIT)" != '64' ]] && echo "不支持32位系统" && exit 2
 
@@ -69,31 +71,36 @@ install_NPSc() {
     last_version=$(curl -Ls --connect-timeout 10 "https://api.github.com/repos/XTBANNY/NPSc/releases/latest" | awk -F'"' '/tag_name/{print $4}')
     if [[ -z "$last_version" ]]; then
         echo -e "${red}无法获取 NPSc 版本信息，请检查网络连接${plain}"
-        echo -e "${yellow}备用方案：手动安装${plain}"
+        echo -e "${yellow}请手动编译: git clone https://github.com/XTBANNY/NPSc && cd NPSc && go build${plain}"
         exit 1
     fi
 
     echo -e "检测到 NPSc ${green}${last_version}${plain}，开始安装"
     download_url="https://github.com/XTBANNY/NPSc/releases/download/${last_version}/NPSc-linux-${arch}.zip"
-    wget --no-check-certificate -O NPSc-linux.zip "${download_url}" || {
-        echo -e "${red}下载 NPSc 失败${plain}"
+    wget --no-check-certificate -N --progress=bar -O NPSc-linux.zip "${download_url}" || {
+        echo -e "${red}下载 NPSc 失败: ${download_url}${plain}"
+        echo -e "${yellow}请检查 GitHub Release 是否包含当前架构的预编译包${plain}"
         exit 1
     }
 
     unzip -o NPSc-linux.zip
     rm NPSc-linux.zip -f
 
-    # Handle nested directories (NPSc/, NPSc-build/NPSc/, NPSc-pkg/ etc)
-    ExtractDir=
+    # Handle nested directories from zip (NPSc/, NPSc-build/NPSc/, NPSc-pkg/)
+    ExtractDir=""
     for d in NPSc NPSc-build/NPSc NPSc-pkg; do
-        [[ -d  ]] && { ExtractDir=; break; }
+        if [[ -d "$d" ]]; then
+            ExtractDir="$d"
+            break
+        fi
     done
-    if [[ -n  ]]; then
-        cp /NPSc ./ 2>/dev/null
-        cp /*.json ./ 2>/dev/null
-        cp /*.dat ./ 2>/dev/null
-        cp /*.db ./ 2>/dev/null
-        rm -rf 
+
+    if [[ -n "$ExtractDir" ]]; then
+        cp "$ExtractDir"/NPSc ./ 2>/dev/null
+        cp "$ExtractDir"/*.json ./ 2>/dev/null
+        cp "$ExtractDir"/*.dat ./ 2>/dev/null
+        cp "$ExtractDir"/*.db ./ 2>/dev/null
+        rm -rf "$ExtractDir"
         rm -rf NPSc-build NPSc-pkg 2>/dev/null
     fi
 
@@ -102,14 +109,11 @@ install_NPSc() {
     cp *.dat /etc/NPSc/ 2>/dev/null
     cp *.db /etc/NPSc/ 2>/dev/null
 
-    # Create sing_origin.json if not present (required by sing core)
+    # Create sing_origin.json if not present
     if [ ! -f /etc/NPSc/sing_origin.json ]; then
         cat > /etc/NPSc/sing_origin.json << 'SINGEOF'
 {
-  "dns": {
-    "servers": [{"tag": "cf", "address": "1.1.1.1"}],
-    "strategy": "ipv4_only"
-  },
+  "dns": { "servers": [{"tag": "cf", "address": "1.1.1.1"}], "strategy": "ipv4_only" },
   "outbounds": [
     {"tag": "direct", "type": "direct"},
     {"type": "block", "tag": "block"}
@@ -124,6 +128,7 @@ install_NPSc() {
 SINGEOF
     fi
 
+    # Systemd service
     if [[ x"${release}" == x"alpine" ]]; then
         rm /etc/init.d/NPSc -f
         cat <<EOF > /etc/init.d/NPSc
@@ -155,8 +160,8 @@ Type=simple
 LimitAS=infinity
 LimitRSS=infinity
 LimitCORE=infinity
-LimitNOFILE=999999
-WorkingDirectory=/usr/local/NPSc/
+LimitNOFILE=65535
+WorkingDirectory=/etc/NPSc/
 ExecStart=/usr/local/NPSc/NPSc server --config /etc/NPSc/config.json
 Restart=always
 RestartSec=10
@@ -171,6 +176,7 @@ EOF
 
     echo -e "${green}NPSc ${last_version}${plain} 安装完成，已设置开机自启"
 
+    # Install management script
     curl -o /usr/bin/NPSc -Ls https://raw.githubusercontent.com/XTBANNY/NPSc-script/master/NPSc.sh
     chmod +x /usr/bin/NPSc
     [[ ! -L /usr/bin/npsc ]] && { ln -s /usr/bin/NPSc /usr/bin/npsc; chmod +x /usr/bin/npsc; }
