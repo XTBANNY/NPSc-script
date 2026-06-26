@@ -5,10 +5,8 @@ green='\033[0;32m'
 yellow='\033[0;33m'
 plain='\033[0m'
 
-# check root
 [[ $EUID -ne 0 ]] && echo -e "${red}错误: ${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
-# check os
 if [[ -f /etc/redhat-release ]]; then
     release="centos"
 elif cat /etc/issue | grep -Eqi "alpine"; then
@@ -32,13 +30,8 @@ else
 fi
 
 arch=$(uname -m)
-if [[ $arch == "x86_64" || $arch == "x64" || $arch == "amd64" ]]; then
-    arch="64"
-elif [[ $arch == "aarch64" || $arch == "arm64" ]]; then
-    arch="arm64-v8a"
-else
-    arch="64"
-fi
+[[ $arch == "x86_64" || $arch == "x64" || $arch == "amd64" ]] && arch="64"
+[[ $arch == "aarch64" || $arch == "arm64" ]] && arch="arm64-v8a"
 
 confirm() {
     if [[ $# > 1 ]]; then
@@ -61,6 +54,10 @@ check_status() {
         temp=$(systemctl status NPSc | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
         [[ x"${temp}" == x"running" ]] && return 0 || return 1
     fi
+}
+
+check_ipv6_support() {
+    ip -6 addr | grep -q "inet6" && echo "1" || echo "0"
 }
 
 show_status() {
@@ -164,107 +161,306 @@ uninstall_npsc() {
     confirm "确定要卸载 NPSc 吗？所有配置将被删除" "n" || return 0
     [[ x"${release}" == x"alpine" ]] && { service NPSc stop; rc-update del NPSc; rm /etc/init.d/NPSc -f; } || { systemctl stop NPSc; systemctl disable NPSc; rm /etc/systemd/system/NPSc.service -f; systemctl daemon-reload; }
     rm /etc/NPSc/ -rf
-    rm /etc/V2bX -f
+    rm /etc/V2bX -f 2>/dev/null
     rm /usr/local/NPSc/ -rf
     echo -e "${green}NPSc 卸载完成${plain}"
 }
 
+# ============================================================
+# 配置文件生成向导（完整版 - 支持 V2bX 全协议）
+# ============================================================
 generate_config() {
-    echo -e "${green}NPSc 配置文件生成向导${plain}"
-    echo -e "${yellow}请依次填写以下信息：${plain}"
+    echo -e "${green}==========================================${plain}"
+    echo -e "${green}      NPSc 配置文件生成向导${plain}"
+    echo -e "${green}==========================================${plain}"
     echo ""
-    
-    read -rp "面板地址（如 https://example.com）：" api_host
-    read -rp "面板 API Key：" api_key
-    read -rp "节点 ID（数字）：" node_id
-    
-    echo -e "${green}请选择节点核心类型：${plain}"
-    echo -e "1. xray (推荐)"
-    echo -e "2. singbox"
-    echo -e "3. hysteria2"
-    read -rp "请输入：" core_choice
-    case "$core_choice" in
-        1) core_type="xray" ;;
-        2) core_type="sing" ;;
-        3) core_type="hysteria2" ;;
-        *) core_type="xray" ;;
-    esac
-    
-    echo -e "${green}请选择节点协议：${plain}"
-    echo -e "1. Vless"
-    echo -e "2. Vmess"
-    echo -e "3. Trojan"
-    echo -e "4. Shadowsocks"
-    echo -e "5. Hysteria2"
-    read -rp "请输入：" proto_choice
-    case "$proto_choice" in
-        1) proto="vless" ;;
-        2) proto="vmess" ;;
-        3) proto="trojan" ;;
-        4) proto="shadowsocks" ;;
-        5) proto="hysteria2" ;;
-        *) proto="vless" ;;
-    esac
-    
-    read -rp "是否启用 TLS？(y/n)：" use_tls
-    cert_mode="none"
-    cert_domain="example.com"
-    if [[ "$use_tls" == "y" || "$use_tls" == "Y" ]]; then
-        cert_mode="dns"
-        read -rp "证书域名：" cert_domain
-    fi
-    
-    # Write config
-    mkdir -p /etc/NPSc/
+
+    # 备份旧配置
     if [[ -f /etc/NPSc/config.json ]]; then
         cp /etc/NPSc/config.json /etc/NPSc/config.json.bak
+        echo -e "${yellow}已备份旧配置到 config.json.bak${plain}"
     fi
+
+    mkdir -p /etc/NPSc/
+
+    # ── 第1步：收集基本信息 ──
+    read -rp "面板地址（如 https://example.com）：" api_host
+    read -rp "面板 API Key：" api_key
+    read -rp "节点 Node ID（数字）：" node_id
+    if [[ ! "$node_id" =~ ^[0-9]+$ ]]; then
+        echo -e "${red}Node ID 必须是数字！${plain}"
+        return 1
+    fi
+
+    # ── 第2步：选择核心类型 ──
+    echo ""
+    echo -e "${yellow}请选择节点核心类型：${plain}"
+    echo -e "${green}1. xray${plain}"
+    echo -e "${green}2. singbox${plain}"
+    echo -e "${green}3. hysteria2${plain}"
+    read -rp "请输入：" core_choice
+    case "$core_choice" in
+        1) core="xray"; core_xray=true ;;
+        2) core="sing"; core_sing=true ;;
+        3) core="hysteria2"; core_hysteria2=true ;;
+        *) echo -e "${red}无效选择${plain}"; return 1 ;;
+    esac
+
+    # ── 第3步：选择协议（根据核心类型决定可用协议）──
+    if [[ "$core_hysteria2" == true && "$core_xray" != true && "$core_sing" != true ]]; then
+        # 纯 hysteria2 核心，强制 hysteria2 协议
+        NodeType="hysteria2"
+    else
+        echo ""
+        echo -e "${yellow}请选择节点传输协议：${plain}"
+        echo -e "${green}1. Shadowsocks${plain}"
+        echo -e "${green}2. Vless${plain}"
+        echo -e "${green}3. Vmess${plain}"
+        if [[ "$core_sing" == true ]]; then
+            echo -e "${green}4. Hysteria${plain}"
+            echo -e "${green}5. Hysteria2${plain}"
+        fi
+        if [[ "$core_hysteria2" == true && "$core_sing" != true ]]; then
+            echo -e "${green}5. Hysteria2${plain}"
+        fi
+        echo -e "${green}6. Trojan${plain}"
+        if [[ "$core_sing" == true ]]; then
+            echo -e "${green}7. Tuic${plain}"
+            echo -e "${green}8. AnyTLS${plain}"
+        fi
+        read -rp "请输入：" NodeTypeInput
+        case "$NodeTypeInput" in
+            1) NodeType="shadowsocks" ;;
+            2) NodeType="vless" ;;
+            3) NodeType="vmess" ;;
+            4) NodeType="hysteria" ;;
+            5) NodeType="hysteria2" ;;
+            6) NodeType="trojan" ;;
+            7) NodeType="tuic" ;;
+            8) NodeType="anytls" ;;
+            *) NodeType="vless" ;;
+        esac
+    fi
+
+    # ── 第4步：TLS / Reality 配置 ──
+    fastopen=true
+    if [[ "$NodeType" == "vless" ]]; then
+        echo ""
+        read -rp "是否为 Reality 节点？(y/n，默认n): " isreality
+    elif [[ "$NodeType" == "hysteria" || "$NodeType" == "hysteria2" || "$NodeType" == "tuic" || "$NodeType" == "anytls" ]]; then
+        fastopen=false
+        istls="y"
+    fi
+
+    isreality="${isreality:-n}"
+    istls="${istls:-n}"
     
+    certmode="none"
+    certdomain="example.com"
+    
+    if [[ "$isreality" != "y" && "$isreality" != "Y" && "$istls" != "y" ]]; then
+        echo ""
+        read -rp "是否启用 TLS 证书？(y/n，默认n): " istls
+    fi
+
+    if [[ "$isreality" != "y" && "$isreality" != "Y" && "$istls" == "y" ]]; then
+        echo ""
+        echo -e "${yellow}请选择证书申请模式：${plain}"
+        echo -e "${green}1. http 模式（域名已正确解析）${plain}"
+        echo -e "${green}2. dns 模式（需配置 API 参数）${plain}"
+        echo -e "${green}3. self 模式（自签或已有证书文件）${plain}"
+        read -rp "请输入：" certmode
+        case "$certmode" in
+            1) certmode="http" ;;
+            2) certmode="dns" ;;
+            3) certmode="self" ;;
+        esac
+        read -rp "请输入证书域名（如 example.com）：" certdomain
+        if [[ "$certmode" == "dns" ]]; then
+            echo -e "${yellow}请安装后手动编辑 /etc/NPSc/config.json 配置 DNS API 参数${plain}"
+        fi
+    fi
+
+    # ── 第5步：监听 IP ──
+    ipv6_support=$(check_ipv6_support)
+    listen_ip="0.0.0.0"
+    if [[ "$ipv6_support" -eq 1 && "$core_sing" == true ]]; then
+        listen_ip="::"
+    fi
+
+    # ── 第6步：写入配置文件 ──
+    mkdir -p /etc/NPSc/
+
     cat > /etc/NPSc/config.json << EOFJSON
 {
-  "Log": {
-    "Level": "error",
-    "Output": ""
-  },
-  "Cores": [
-    {
-      "Type": "$core_type",
-      "Log": {
-        "Level": "error"
-      }
-    }
-  ],
-  "Nodes": [
-    {
-      "Core": "$core_type",
-      "ApiHost": "$api_host",
-      "ApiKey": "$api_key",
-      "NodeID": $node_id,
-      "NodeType": "$proto",
-      "Timeout": 30,
-      "ListenIP": "0.0.0.0",
-      "SendIP": "0.0.0.0",
-      "DeviceOnlineMinTraffic": 200,
-      "MinReportTraffic": 0,
-      "CertConfig": {
-        "CertMode": "$cert_mode",
-        "RejectUnknownSni": false,
-        "CertDomain": "$cert_domain",
-        "CertFile": "/etc/NPSc/fullchain.cer",
-        "KeyFile": "/etc/NPSc/cert.key",
-        "Provider": "cloudflare",
-        "DNSEnv": {}
-      }
-    }
-  ]
+    "Log": {
+        "Level": "error",
+        "Output": ""
+    },
+    "Cores": [
+EOFJSON
+
+    # Xray 核心配置
+    if [[ "$core_xray" == true ]]; then
+        cat >> /etc/NPSc/config.json << EOFJSON
+        {
+            "Type": "xray",
+            "Log": {
+                "Level": "error",
+                "ErrorPath": "/etc/NPSc/error.log"
+            },
+            "OutboundConfigPath": "/etc/NPSc/custom_outbound.json",
+            "RouteConfigPath": "/etc/NPSc/route.json"
+        }
+EOFJSON
+        # Append comma if other cores follow
+        [[ "$core_sing" == true || "$core_hysteria2" == true ]] && echo "," >> /etc/NPSc/config.json
+    fi
+
+    # Sing 核心配置
+    if [[ "$core_sing" == true ]]; then
+        cat >> /etc/NPSc/config.json << EOFJSON
+        {
+            "Type": "sing",
+            "Log": {
+                "Level": "error",
+                "Timestamp": true
+            },
+            "NTP": {
+                "Enable": false,
+                "Server": "time.apple.com",
+                "ServerPort": 0
+            },
+            "OriginalPath": "/etc/NPSc/sing_origin.json"
+        }
+EOFJSON
+        [[ "$core_hysteria2" == true ]] && echo "," >> /etc/NPSc/config.json
+    fi
+
+    # Hysteria2 核心配置
+    if [[ "$core_hysteria2" == true ]]; then
+        cat >> /etc/NPSc/config.json << EOFJSON
+        {
+            "Type": "hysteria2",
+            "Log": {
+                "Level": "error"
+            }
+        }
+EOFJSON
+    fi
+
+    echo "" >> /etc/NPSc/config.json
+
+    cat >> /etc/NPSc/config.json << EOFJSON
+    ],
+    "Nodes": [
+        {
+            "Core": "$core",
+            "ApiHost": "$api_host",
+            "ApiKey": "$api_key",
+            "NodeID": $node_id,
+            "NodeType": "$NodeType",
+            "Timeout": 30,
+            "ListenIP": "$listen_ip",
+            "SendIP": "0.0.0.0",
+            "DeviceOnlineMinTraffic": 200,
+            "MinReportTraffic": 0,
+            "TCPFastOpen": $fastopen,
+            "SniffEnabled": true,
+            "CertConfig": {
+                "CertMode": "$certmode",
+                "RejectUnknownSni": false,
+                "CertDomain": "$certdomain",
+                "CertFile": "/etc/NPSc/fullchain.cer",
+                "KeyFile": "/etc/NPSc/cert.key",
+                "Email": "npsc@github.com",
+                "Provider": "cloudflare",
+                "DNSEnv": {}
+            }
+        }
+    ]
 }
 EOFJSON
 
-    # Ensure symlink for hardcoded paths
-    [[ ! -L /etc/V2bX ]] && ln -sf /etc/NPSc /etc/V2bX 2>/dev/null
-    
-    echo -e "${green}配置文件已保存到 /etc/NPSc/config.json${plain}"
-    echo -e "${yellow}请使用 NPSc restart 重启服务${plain}"
+    # ── 第7步：创建配套配置文件 ──
+    if [[ ! -f /etc/NPSc/custom_outbound.json ]]; then
+        cat > /etc/NPSc/custom_outbound.json << 'EOF'
+    [
+        {
+            "tag": "IPv4_out",
+            "protocol": "freedom",
+            "settings": {
+                "domainStrategy": "UseIPv4v6"
+            }
+        },
+        {
+            "tag": "IPv6_out",
+            "protocol": "freedom",
+            "settings": {
+                "domainStrategy": "UseIPv6"
+            }
+        },
+        {
+            "protocol": "blackhole",
+            "tag": "block"
+        }
+    ]
+EOF
+    fi
+
+    if [[ ! -f /etc/NPSc/route.json ]]; then
+        cat > /etc/NPSc/route.json << 'EOF'
+    {
+        "rules": [
+            {
+                "type": "field",
+                "outboundTag": "block",
+                "ip": ["geoip:private"]
+            },
+            {
+                "type": "field",
+                "outboundTag": "block",
+                "protocol": ["bittorrent"]
+            }
+        ]
+    }
+EOF
+    fi
+
+    if [[ ! -f /etc/NPSc/sing_origin.json ]]; then
+        cat > /etc/NPSc/sing_origin.json << 'EOF'
+{
+  "dns": {
+    "servers": [
+      {"tag": "cf", "address": "1.1.1.1"}
+    ],
+    "strategy": "ipv4_only"
+  },
+  "outbounds": [
+    {"tag": "direct", "type": "direct"},
+    {"type": "block", "tag": "block"}
+  ],
+  "route": {
+    "rules": [
+      {"ip_is_private": true, "outbound": "block"},
+      {"outbound": "direct", "network": ["udp","tcp"]}
+    ]
+  }
+}
+EOF
+    fi
+
+    # ── 完成 ──
+    echo ""
+    echo -e "${green}==========================================${plain}"
+    echo -e "${green}  配置文件已生成！${plain}"
+    echo -e "${green}==========================================${plain}"
+    echo -e "  主配置: ${yellow}/etc/NPSc/config.json${plain}"
+    echo -e "  核心:   ${yellow}$core${plain}"
+    echo -e "  协议:   ${yellow}$NodeType${plain}"
+    echo -e "  面板:   ${yellow}$api_host${plain}"
+    echo ""
+    echo -e "  使用 ${green}NPSc restart${plain} 重启服务生效"
 }
 
 show_menu() {
@@ -296,7 +492,7 @@ show_menu() {
     echo && read -rp "请输入选择 [0-16]: " num
 
     case "${num}" in
-        0) echo "请手动编辑 /etc/NPSc/config.json，然后运行 NPSc restart" ;;
+        0) echo "请手动编辑 /etc/NPSc/config.json，保存后执行 NPSc restart" ;;
         1) generate_config ;;
         2) install_npsc ;;
         3) update_npsc ;;
