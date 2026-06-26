@@ -100,6 +100,28 @@ install_NPSc() {
     cp *.dat /etc/NPSc/ 2>/dev/null
     cp *.db /etc/NPSc/ 2>/dev/null
 
+    # Create sing_origin.json if not present (required by sing core)
+    if [ ! -f /etc/NPSc/sing_origin.json ]; then
+        cat > /etc/NPSc/sing_origin.json << 'SINGEOF'
+{
+  "dns": {
+    "servers": [{"tag": "cf", "address": "1.1.1.1"}],
+    "strategy": "ipv4_only"
+  },
+  "outbounds": [
+    {"tag": "direct", "type": "direct"},
+    {"type": "block", "tag": "block"}
+  ],
+  "route": {
+    "rules": [
+      {"ip_is_private": true, "outbound": "block"},
+      {"outbound": "direct", "network": ["udp","tcp"]}
+    ]
+  }
+}
+SINGEOF
+    fi
+
     if [[ x"${release}" == x"alpine" ]]; then
         rm /etc/init.d/NPSc -f
         cat <<EOF > /etc/init.d/NPSc
