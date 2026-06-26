@@ -84,11 +84,15 @@ install_NPSc() {
     unzip -o NPSc-linux.zip
     rm NPSc-linux.zip -f
 
+    # Handle nested directory from zip (NPSc-linux-64.zip contains NPSc/ subdir)
     if [[ -d NPSc ]]; then
-        mv NPSc/NPSc ./
-        mv NPSc/*.json ./
-        mv NPSc/*.dat ./
-        mv NPSc/*.db ./
+        rm -rf NPSc_real 2>/dev/null
+        mv NPSc/NPSc NPSc_real 2>/dev/null
+        cp NPSc/*.json ./ 2>/dev/null
+        cp NPSc/*.dat ./ 2>/dev/null
+        cp NPSc/*.db ./ 2>/dev/null
+        rm -rf NPSc
+        mv NPSc_real NPSc 2>/dev/null || true
     fi
 
     chmod +x NPSc
